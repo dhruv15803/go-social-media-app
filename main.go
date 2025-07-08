@@ -108,6 +108,10 @@ func main() {
 
 		r.Route("/user", func(r chi.Router) {
 			r.Get("/{userId}/profile", handler.GetUserProfileHandler)
+			r.With(handler.OptionalAuthMiddleware).Get("/{userId}/posts", handler.GetUserPostsHandler)
+			r.With(handler.OptionalAuthMiddleware).Get("/{userId}/liked-posts", handler.GetUserLikedPostsHandler)
+			r.With(handler.OptionalAuthMiddleware).Get("/{userId}/bookmarked-posts", handler.GetUserBookmarkedPostsHandler)
+
 			r.Group(func(r chi.Router) {
 				r.Use(handler.AuthMiddleware)
 				r.Get("/notifications", handler.GetNotificationsHandler)
@@ -115,9 +119,6 @@ func main() {
 				r.Post("/{userId}/follow-request", handler.FollowRequestHandler)
 				r.Post("/{userId}/follow", handler.FollowUserHandler)
 				r.Post("/{userId}/follow-request/accept", handler.AcceptFollowRequestHandler)
-				r.Get("/{userId}/posts", handler.GetUserPostsHandler)
-				r.Get("/{userId}/liked-posts", handler.GetUserLikedPostsHandler)
-				r.Get("/{userId}/bookmarked-posts", handler.GetUserBookmarkedPostsHandler)
 				r.Get("/{userId}/followers", handler.GetUserFollowersHandler)
 				r.Get("/{userId}/followings", handler.GetUserFollowingsHandler)
 				r.Get("/my-requests-sent", handler.GetFollowRequestsSentHandler)
