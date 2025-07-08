@@ -110,6 +110,7 @@ func main() {
 			r.Get("/{userId}/profile", handler.GetUserProfileHandler)
 			r.Group(func(r chi.Router) {
 				r.Use(handler.AuthMiddleware)
+				r.Get("/notifications", handler.GetNotificationsHandler)
 				r.Put("/", handler.UpdateUserHandler)
 				r.Post("/{userId}/follow-request", handler.FollowRequestHandler)
 				r.Post("/{userId}/follow", handler.FollowUserHandler)
@@ -120,6 +121,7 @@ func main() {
 				r.Get("/{userId}/followers", handler.GetUserFollowersHandler)
 				r.Get("/{userId}/followings", handler.GetUserFollowingsHandler)
 				r.Get("/my-requests-sent", handler.GetFollowRequestsSentHandler)
+				r.Get("/my-requests-received", handler.GetRequestsReceivedHandler)
 				r.Get("/my-followings", handler.GetFollowingsHandler)
 			})
 		})

@@ -8,6 +8,11 @@ type FollowRequest struct {
 	RequestAt         string `db:"request_at" json:"request_at"`
 }
 
+type FollowRequestWithSender struct {
+	FollowRequest
+	RequestSender User `json:"request_sender"`
+}
+
 func (s *Storage) CreateFollowRequest(requestSenderId int, requestReceiverId int) (*FollowRequest, error) {
 	var followRequest FollowRequest
 
@@ -129,4 +134,53 @@ func (s *Storage) GetFollowRequestsSentByUser(userId int) ([]FollowRequest, erro
 	}
 
 	return followRequests, nil
+}
+
+func (s *Storage) GetFollowRequestsReceivedByUser(userId int, skip int, limit int) ([]FollowRequestWithSender, error) {
+	var followRequests []FollowRequestWithSender
+
+	query := `SELECT fr.request_sender_id,fr.request_receiver_id,fr.request_at,
+u.id,u.email,u.username,u.image_url,u.password,u.bio,u.location,u.date_of_birth,u.is_public,
+u.created_at,u.updated_at
+FROM follow_requests AS fr INNER JOIN users AS u ON fr.request_sender_id=u.id 
+WHERE request_receiver_id=$1
+ORDER BY request_at DESC
+LIMIT $2 OFFSET $3`
+
+	rows, err := s.db.Queryx(query, userId, limit, skip)
+	if err != nil {
+		return []FollowRequestWithSender{}, err
+	}
+
+	defer rows.Close()
+
+	for rows.Next() {
+
+		var followRequest FollowRequestWithSender
+
+		if err := rows.Scan(&followRequest.RequestSenderId, &followRequest.RequestReceiverId, &followRequest.RequestAt, &followRequest.RequestSender.Id,
+			&followRequest.RequestSender.Email, &followRequest.RequestSender.Username, &followRequest.RequestSender.ImageUrl, &followRequest.RequestSender.Password,
+			&followRequest.RequestSender.Bio, &followRequest.RequestSender.Location, &followRequest.RequestSender.DateOfBirth, &followRequest.RequestSender.IsPublic, &followRequest.RequestSender.CreatedAt, &followRequest.RequestSender.UpdatedAt); err != nil {
+			return []FollowRequestWithSender{}, err
+		}
+
+		followRequests = append(followRequests, followRequest)
+
+	}
+
+	return followRequests, nil
+}
+
+func (s *Storage) GetFollowRequestsReceivedByUserCount(userId int) (int, error) {
+
+	var totalRequestsCount int
+
+	query := `SELECT COUNT(*) FROM follow_requests WHERE request_receiver_id=$1`
+
+	if err := s.db.Get(&totalRequestsCount, query, userId); err != nil {
+		return -1, err
+	}
+
+	return totalRequestsCount, nil
+
 }

@@ -1,0 +1,3 @@
+ALTER TABLE notifications
+ADD COLUMN post_id INTEGER NOT NULL,
+ADD CONSTRAINT post_id_fkey FOREIGN KEY (post_id) REFERENCES posts (id) ON DELETE CASCADE;

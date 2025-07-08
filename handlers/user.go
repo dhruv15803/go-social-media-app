@@ -901,3 +901,119 @@ func (h *Handler) GetFollowingsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 }
+
+func (h *Handler) GetNotificationsHandler(w http.ResponseWriter, r *http.Request) {
+	userId, ok := r.Context().Value(AuthUserId).(int)
+	if !ok {
+		writeJSONError(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	user, err := h.storage.GetUserById(userId)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeJSONError(w, "user not found", http.StatusBadRequest)
+			return
+		} else {
+			writeJSONError(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	page, err := strconv.Atoi(r.URL.Query().Get("page"))
+	if err != nil {
+		writeJSONError(w, "invalid query params page", http.StatusBadRequest)
+		return
+	}
+
+	limit, err := strconv.Atoi(r.URL.Query().Get("limit"))
+	if err != nil {
+		writeJSONError(w, "invalid query params limit", http.StatusBadRequest)
+		return
+	}
+
+	skip := page*limit - limit
+
+	notifications, err := h.storage.GetNotificationsByUserId(user.Id, skip, limit)
+	if err != nil {
+		writeJSONError(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	totalNotificationsCount, err := h.storage.GetNotificationsByUserIdCount(user.Id)
+	if err != nil {
+		writeJSONError(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	noOfPages := math.Ceil(float64(totalNotificationsCount) / float64(limit))
+
+	type Response struct {
+		Success       bool                            `json:"success"`
+		Notifications []storage.NotificationWithActor `json:"notifications"`
+		NoOfPages     int                             `json:"noOfPages"`
+	}
+
+	if err := writeJSON(w, Response{Success: true, Notifications: notifications, NoOfPages: int(noOfPages)}, http.StatusOK); err != nil {
+		writeJSONError(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+}
+
+func (h *Handler) GetRequestsReceivedHandler(w http.ResponseWriter, r *http.Request) {
+	userId, ok := r.Context().Value(AuthUserId).(int)
+	if !ok {
+		writeJSONError(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	user, err := h.storage.GetUserById(userId)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeJSONError(w, "user not found", http.StatusBadRequest)
+			return
+		} else {
+			writeJSONError(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	page, err := strconv.Atoi(r.URL.Query().Get("page"))
+	if err != nil {
+		writeJSONError(w, "invalid query params page", http.StatusBadRequest)
+		return
+	}
+
+	limit, err := strconv.Atoi(r.URL.Query().Get("limit"))
+	if err != nil {
+		writeJSONError(w, "invalid query params limit", http.StatusBadRequest)
+		return
+	}
+
+	skip := page*limit - limit
+
+	followRequestsReceived, err := h.storage.GetFollowRequestsReceivedByUser(user.Id, skip, limit)
+	if err != nil {
+		writeJSONError(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	totalRequestsReceivedCount, err := h.storage.GetFollowRequestsReceivedByUserCount(user.Id)
+	if err != nil {
+		writeJSONError(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	noOfPages := math.Ceil(float64(totalRequestsReceivedCount) / float64(limit))
+
+	type Response struct {
+		Success                bool                              `json:"success"`
+		FollowRequestsReceived []storage.FollowRequestWithSender `json:"follow_requests_received"`
+		NoOfPages              int                               `json:"noOfPages"`
+	}
+
+	if err := writeJSON(w, Response{Success: true, FollowRequestsReceived: followRequestsReceived, NoOfPages: int(noOfPages)}, http.StatusOK); err != nil {
+		writeJSONError(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+}

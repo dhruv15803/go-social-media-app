@@ -280,7 +280,7 @@ func (h *Handler) CreateChildPostHandler(w http.ResponseWriter, r *http.Request)
 
 		if parentPostOwnerId != user.Id {
 			maxRetries := 3
-			if ok := h.sendNotification(parentPostOwnerId, user.Id, "comment", maxRetries); !ok {
+			if ok := h.sendNotification(parentPost.Id, user.Id, "comment", parentPost.Id, maxRetries); !ok {
 				writeJSONError(w, "internal server error", http.StatusInternalServerError)
 				return
 			}
@@ -307,7 +307,7 @@ func (h *Handler) CreateChildPostHandler(w http.ResponseWriter, r *http.Request)
 
 		if parentPostOwnerId != user.Id {
 			maxRetries := 3
-			if ok := h.sendNotification(parentPostOwnerId, user.Id, "comment", maxRetries); !ok {
+			if ok := h.sendNotification(parentPostOwnerId, user.Id, "comment", parentPost.Id, maxRetries); !ok {
 				writeJSONError(w, "internal server error", http.StatusInternalServerError)
 				return
 			}
@@ -435,12 +435,33 @@ func (h *Handler) LikePostHandler(w http.ResponseWriter, r *http.Request) {
 		if postOwnerId != user.Id {
 			// only send like notification if somebody else's post
 
-			maxNotificationRetries := 3
+			// check if  user had already liked before this and then unliked then liking again
+			// so there will be an existing notification entry with actor_id=user.Id,post_id=post.Id,type="like"
 
-			if ok := h.sendNotification(postOwnerId, user.Id, "like", maxNotificationRetries); !ok {
-				log.Println("failed to create like notification")
+			existingLikeNotifications, err := h.storage.GetNotificationsByActorIdAndPostId(user.Id, post.Id, "like")
+			if err != nil {
 				writeJSONError(w, "internal server error", http.StatusInternalServerError)
 				return
+			}
+
+			if len(existingLikeNotifications) != 0 {
+				// update the notification_created_at field
+
+				_, err := h.storage.UpdateNotificationByActorIdAndPostId(user.Id, post.Id, "like")
+				if err != nil {
+					log.Printf("failed to update notification created_at :- %v\n", err.Error())
+					writeJSONError(w, "internal server error", http.StatusInternalServerError)
+					return
+				}
+
+			} else {
+				maxNotificationRetries := 3
+
+				if ok := h.sendNotification(postOwnerId, user.Id, "like", post.Id, maxNotificationRetries); !ok {
+					log.Println("failed to create like notification")
+					writeJSONError(w, "internal server error", http.StatusInternalServerError)
+					return
+				}
 			}
 		}
 
@@ -777,7 +798,6 @@ func (h *Handler) GetPostWithMetaDataHandler(w http.ResponseWriter, r *http.Requ
 			writeJSONError(w, "internal server error", http.StatusInternalServerError)
 			return
 		}
-
 	}
 
 	postWithMetaData, err := h.storage.GetPostWithMetaDataById(post.Id)
@@ -801,13 +821,14 @@ func (h *Handler) GetPostWithMetaDataHandler(w http.ResponseWriter, r *http.Requ
 	}
 }
 
-func (h *Handler) sendNotification(userId int, actorId int, notificationType storage.NotificationType, maxRetries int) bool {
+func (h *Handler) sendNotification(userId int, actorId int, notificationType storage.NotificationType, postId int, maxRetries int) bool {
 
 	isNotificationSuccessful := false
 
 	for i := 0; i < maxRetries; i++ {
-		_, err := h.storage.CreateNotification(userId, actorId, notificationType)
+		_, err := h.storage.CreateNotification(userId, actorId, postId, notificationType)
 		if err != nil {
+			log.Printf(err.Error())
 			continue
 		}
 		isNotificationSuccessful = true
@@ -815,5 +836,4 @@ func (h *Handler) sendNotification(userId int, actorId int, notificationType sto
 	}
 
 	return isNotificationSuccessful
-
 }
