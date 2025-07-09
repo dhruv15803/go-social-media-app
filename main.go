@@ -111,6 +111,9 @@ func main() {
 			r.With(handler.OptionalAuthMiddleware).Get("/{userId}/posts", handler.GetUserPostsHandler)
 			r.With(handler.OptionalAuthMiddleware).Get("/{userId}/liked-posts", handler.GetUserLikedPostsHandler)
 			r.With(handler.OptionalAuthMiddleware).Get("/{userId}/bookmarked-posts", handler.GetUserBookmarkedPostsHandler)
+			r.With(handler.OptionalAuthMiddleware).Get("/{userId}/followers", handler.GetUserFollowersHandler)
+			r.With(handler.OptionalAuthMiddleware).Get("/{userId}/followings", handler.GetUserFollowingsHandler)
+			r.Get("/search", handler.GetSearchResultsHandler)
 
 			r.Group(func(r chi.Router) {
 				r.Use(handler.AuthMiddleware)
@@ -119,8 +122,6 @@ func main() {
 				r.Post("/{userId}/follow-request", handler.FollowRequestHandler)
 				r.Post("/{userId}/follow", handler.FollowUserHandler)
 				r.Post("/{userId}/follow-request/accept", handler.AcceptFollowRequestHandler)
-				r.Get("/{userId}/followers", handler.GetUserFollowersHandler)
-				r.Get("/{userId}/followings", handler.GetUserFollowingsHandler)
 				r.Get("/my-requests-sent", handler.GetFollowRequestsSentHandler)
 				r.Get("/my-requests-received", handler.GetRequestsReceivedHandler)
 				r.Get("/my-followings", handler.GetFollowingsHandler)

@@ -195,3 +195,64 @@ func (s *Storage) UpdateUser(userId int, username string, imageUrl string, bio s
 
 	return &updatedUser, nil
 }
+
+func (s *Storage) GetUsersBySearchText(searchText string, skip int, limit int) ([]User, error) {
+
+	type UserWithFollowerCount struct {
+		User
+		FollowersCount int `db:"followers_count"`
+	}
+
+	var results []User
+
+	query := `SELECT u.id,u.email,u.username,u.image_url,u.password,bio,u.location,u.date_of_birth,u.is_public,u.created_at,u.updated_at,COUNT(f.follower_id) AS followers_count
+FROM users AS u LEFT JOIN follows AS f ON f.following_id=u.id
+WHERE u.username ILIKE $1
+GROUP BY u.id,f.following_id
+ORDER BY followers_count DESC , u.created_at DESC 
+LIMIT $2 OFFSET $3`
+
+	var searchParam string
+
+	if searchText == "" {
+		searchParam = ""
+	} else {
+		searchParam = "%" + searchText + "%"
+	}
+	rows, err := s.db.Queryx(query, searchParam, limit, skip)
+	if err != nil {
+		return []User{}, err
+	}
+
+	defer rows.Close()
+
+	for rows.Next() {
+		var temp UserWithFollowerCount
+
+		if err := rows.StructScan(&temp); err != nil {
+			return []User{}, err
+		}
+
+		results = append(results, temp.User)
+	}
+
+	return results, nil
+}
+
+func (s *Storage) GetUsersBySearchTextCount(searchText string) (int, error) {
+
+	var totalResultsCount int
+
+	query := `SELECT COUNT(id) FROM users WHERE username ILIKE $1`
+
+	searchParam := "%" + searchText + "%"
+
+	row := s.db.QueryRow(query, searchParam)
+
+	if err := row.Scan(&totalResultsCount); err != nil {
+		return -1, err
+	}
+
+	return totalResultsCount, nil
+
+}

@@ -263,11 +263,12 @@ func (h *Handler) AcceptFollowRequestHandler(w http.ResponseWriter, r *http.Requ
 func (h *Handler) GetUserPostsHandler(w http.ResponseWriter, r *http.Request) {
 
 	authUserId, ok := r.Context().Value(AuthUserId).(int)
-
 	if !ok {
 		writeJSONError(w, "internal server error", http.StatusInternalServerError)
 		return
 	}
+
+	log.Printf("auth id :- %v", authUserId)
 
 	isGuest := authUserId == 0
 
@@ -328,7 +329,7 @@ func (h *Handler) GetUserPostsHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if !user.IsPublic && follow == nil && authUser.Id != user.Id {
+	if !user.IsPublic && follow == nil && authUserId != user.Id {
 		writeJSONError(w, "user is not public and not followed by auth user", http.StatusUnauthorized)
 		return
 	}
@@ -560,15 +561,23 @@ func (h *Handler) GetUserFollowersHandler(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	authUser, err := h.storage.GetUserById(authUserId)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			writeJSONError(w, "user not found", http.StatusBadRequest)
-			return
-		} else {
-			writeJSONError(w, "internal server error", http.StatusInternalServerError)
-			return
+	isGuest := authUserId == 0
 
+	var authUser *storage.User
+	var err error
+	var follow *storage.Follow
+
+	if !isGuest {
+		authUser, err = h.storage.GetUserById(authUserId)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				writeJSONError(w, "user not found", http.StatusBadRequest)
+				return
+			} else {
+				writeJSONError(w, "internal server error", http.StatusInternalServerError)
+				return
+
+			}
 		}
 	}
 
@@ -603,13 +612,15 @@ func (h *Handler) GetUserFollowersHandler(w http.ResponseWriter, r *http.Request
 
 	skip := page*limit - limit
 
-	follow, err := h.storage.GetFollow(authUser.Id, user.Id)
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		writeJSONError(w, "internal server error", http.StatusInternalServerError)
-		return
+	if !isGuest {
+		follow, err = h.storage.GetFollow(authUser.Id, user.Id)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			writeJSONError(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
 	}
 
-	if !user.IsPublic && follow == nil && authUser.Id != user.Id {
+	if !user.IsPublic && follow == nil && authUserId != user.Id {
 		writeJSONError(w, "cannot view user's followers , user is private and auth user is not following the user", http.StatusBadRequest)
 		return
 	}
@@ -647,15 +658,23 @@ func (h *Handler) GetUserFollowingsHandler(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	authUser, err := h.storage.GetUserById(authUserId)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			writeJSONError(w, "user not found", http.StatusBadRequest)
-			return
-		} else {
-			writeJSONError(w, "internal server error", http.StatusInternalServerError)
-			return
+	isGuest := authUserId == 0
 
+	var authUser *storage.User
+	var err error
+	var follow *storage.Follow
+
+	if !isGuest {
+		authUser, err = h.storage.GetUserById(authUserId)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				writeJSONError(w, "user not found", http.StatusBadRequest)
+				return
+			} else {
+				writeJSONError(w, "internal server error", http.StatusInternalServerError)
+				return
+
+			}
 		}
 	}
 
@@ -690,13 +709,15 @@ func (h *Handler) GetUserFollowingsHandler(w http.ResponseWriter, r *http.Reques
 
 	skip := page*limit - limit
 
-	follow, err := h.storage.GetFollow(authUser.Id, user.Id)
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		writeJSONError(w, "internal server error", http.StatusInternalServerError)
-		return
+	if !isGuest {
+		follow, err = h.storage.GetFollow(authUser.Id, user.Id)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			writeJSONError(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
 	}
 
-	if !user.IsPublic && follow == nil && authUser.Id != user.Id {
+	if !user.IsPublic && follow == nil && authUserId != user.Id {
 		writeJSONError(w, "cannot view user's followers , user is private and auth user is not following the user", http.StatusBadRequest)
 		return
 	}
@@ -1044,6 +1065,52 @@ func (h *Handler) GetRequestsReceivedHandler(w http.ResponseWriter, r *http.Requ
 	}
 
 	if err := writeJSON(w, Response{Success: true, FollowRequestsReceived: followRequestsReceived, NoOfPages: int(noOfPages)}, http.StatusOK); err != nil {
+		writeJSONError(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+}
+
+func (h *Handler) GetSearchResultsHandler(w http.ResponseWriter, r *http.Request) {
+
+	searchText := strings.TrimSpace(r.URL.Query().Get("searchText"))
+
+	page, err := strconv.Atoi(r.URL.Query().Get("page"))
+	if err != nil {
+		writeJSONError(w, "invalid query param page", http.StatusInternalServerError)
+		return
+	}
+
+	limit, err := strconv.Atoi(r.URL.Query().Get("limit"))
+	if err != nil {
+		writeJSONError(w, "invalid query param limit", http.StatusInternalServerError)
+		return
+	}
+
+	skip := page*limit - limit
+
+	results, err := h.storage.GetUsersBySearchText(searchText, skip, limit)
+	if err != nil {
+		log.Printf("failed to get search results :- %v\n", err.Error())
+		writeJSONError(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	totalResultsCount, err := h.storage.GetUsersBySearchTextCount(searchText)
+	if err != nil {
+		log.Printf("failed to get search results count :- %v\n", err.Error())
+		writeJSONError(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	noOfPages := math.Ceil(float64(totalResultsCount) / float64(limit))
+
+	type Response struct {
+		Success   bool           `json:"success"`
+		Results   []storage.User `json:"results"`
+		NoOfPages int            `json:"noOfPages"`
+	}
+
+	if err := writeJSON(w, Response{Success: true, Results: results, NoOfPages: int(noOfPages)}, http.StatusOK); err != nil {
 		writeJSONError(w, "internal server error", http.StatusInternalServerError)
 		return
 	}
