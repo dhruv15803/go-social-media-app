@@ -82,6 +82,7 @@ func main() {
 		r.Route("/auth", func(r chi.Router) {
 			r.Post("/register", handler.RegisterUserHandler)
 			r.Post("/login", handler.LoginUserHandler)
+			r.Put("/activate", handler.ActivateUserHandler)
 			r.With(handler.AuthMiddleware).Get("/user", handler.GetAuthUserHandler)
 		})
 

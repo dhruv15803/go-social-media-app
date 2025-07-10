@@ -1,5 +1,10 @@
 package storage
 
+import (
+	"fmt"
+	"time"
+)
+
 type User struct {
 	Id          int     `db:"id" json:"id"`
 	Email       string  `db:"email" json:"email"`
@@ -12,6 +17,13 @@ type User struct {
 	IsPublic    bool    `db:"is_public" json:"is_public"`
 	CreatedAt   string  `db:"created_at" json:"created_at"`
 	UpdatedAt   *string `db:"updated_at" json:"updated_at"`
+	IsActive    bool    `db:"is_active" json:"is_active"`
+}
+
+type UserInvitation struct {
+	Token      string `db:"token" json:"token"`
+	UserId     int    `db:"user_id" json:"user_id"`
+	Expiration string `db:"expiration" json:"expiration"`
 }
 
 func (s *Storage) GetUsersByEmailOrUsername(email string, username string) ([]User, error) {
@@ -28,6 +40,36 @@ func (s *Storage) GetUsersByEmailOrUsername(email string, username string) ([]Us
 	return users, nil
 }
 
+func (s *Storage) GetActiveUsersByEmailOrUsername(email string, username string) ([]User, error) {
+
+	var activeUsers []User
+
+	query := `SELECT id,email,username,image_url,password,bio,location,date_of_birth,is_public,
+	created_at,updated_at,is_active 
+	FROM users
+	WHERE (email=$1 OR username=$2) AND is_active=true`
+
+	rows, err := s.db.Queryx(query, email, username)
+	if err != nil {
+		return []User{}, err
+	}
+
+	defer rows.Close()
+
+	for rows.Next() {
+
+		var activeUser User
+
+		if err := rows.StructScan(&activeUser); err != nil {
+			return []User{}, err
+		}
+
+		activeUsers = append(activeUsers, activeUser)
+	}
+
+	return activeUsers, nil
+}
+
 func (s *Storage) CreateUser(email string, username string, password string, dateOfBirth string) (*User, error) {
 
 	var newUser User
@@ -42,6 +84,120 @@ func (s *Storage) CreateUser(email string, username string, password string, dat
 	}
 
 	return &newUser, nil
+}
+
+func (s *Storage) CreateUserAndInvitation(email string, username string, password string, dateOfBirth string, token string, expirationTime time.Time) (newUser *User, err error) {
+
+	tx, err := s.db.Beginx()
+	if err != nil {
+		return nil, err
+	}
+
+	defer func() {
+		if p := recover(); p != nil {
+			tx.Rollback()
+			panic(p) // re-throw panic
+		} else if err != nil {
+			tx.Rollback()
+		} else {
+			err = tx.Commit()
+		}
+	}()
+
+	query := `INSERT INTO users(email,username,password,date_of_birth) VALUES($1,$2,$3,$4) RETURNING id,email,username,image_url,password,bio,location,date_of_birth,is_public,
+	created_at,updated_at,is_active`
+
+	row := tx.QueryRowx(query, email, username, password, dateOfBirth)
+	newUser = &User{}
+	if err = row.StructScan(newUser); err != nil {
+		return nil, err
+	}
+
+	query = `INSERT INTO user_invitations(token,user_id,expiration) VALUES($1,$2,$3)`
+
+	result, err := tx.Exec(query, token, newUser.Id, expirationTime)
+	if err != nil {
+		return nil, err
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return nil, err
+	}
+
+	if rowsAffected != 1 {
+		return nil, fmt.Errorf("failed to insert user invitation for user")
+	}
+
+	return newUser, nil
+}
+
+func (s *Storage) ActivateUser(token string) (user *User, err error) {
+
+	var userInvitation UserInvitation
+
+	tx, err := s.db.Beginx()
+	if err != nil {
+		return nil, err
+	}
+
+	defer func() {
+		if err != nil {
+			tx.Rollback()
+		}
+	}()
+
+	query := `SELECT token,user_id,expiration FROM user_invitations 
+	WHERE token=$1 AND expiration > $2`
+
+	row := tx.QueryRowx(query, token, time.Now())
+
+	if err := row.StructScan(&userInvitation); err != nil {
+		return nil, err
+	}
+
+	userId := userInvitation.UserId
+
+	user, err = s.GetUserById(userId)
+	if err != nil {
+		return nil, err
+	}
+
+	// update user is_active
+	query = `UPDATE users SET is_active=true WHERE id=$1`
+
+	result, err := tx.Exec(query, user.Id)
+	if err != nil {
+		return nil, err
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return nil, err
+	}
+
+	if rowsAffected != 1 {
+		return nil, fmt.Errorf("failed to activate user")
+	}
+
+	// clear all other fields with this email that are unactive
+	query = `DELETE FROM users WHERE email=$1 AND is_active=false`
+
+	result, err = tx.Exec(query, user.Email)
+	if err != nil {
+		return nil, err
+	}
+
+	_, err = result.RowsAffected()
+	if err != nil {
+		return nil, err
+	}
+
+	if err = tx.Commit(); err != nil {
+		return nil, err
+	}
+
+	return user, nil
 }
 
 func (s *Storage) GetUserByEmail(email string) (*User, error) {

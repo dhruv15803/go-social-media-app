@@ -14,6 +14,7 @@ import (
 	"github.com/dhruv15803/social-media-app/helpers"
 	"github.com/dhruv15803/social-media-app/storage"
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -31,8 +32,9 @@ type LoginUserRequest struct {
 }
 
 var (
-	MIN_USER_AGE int    = 15
-	JWT_SECRET   []byte = []byte(os.Getenv("JWT_SECRET"))
+	MIN_USER_AGE                  int    = 15
+	JWT_SECRET                    []byte = []byte(os.Getenv("JWT_SECRET"))
+	VERIFICATION_MAIL_RETRY_COUNT        = 3
 )
 
 func (h *Handler) RegisterUserHandler(w http.ResponseWriter, r *http.Request) {
@@ -79,43 +81,79 @@ func (h *Handler) RegisterUserHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// registration data validated , now checking if another user with this username or email exists
-
-	existingUsers, err := h.storage.GetUsersByEmailOrUsername(userEmail, userUsername)
+	// check if active users with username or email exists in the db
+	activeUsers, err := h.storage.GetActiveUsersByEmailOrUsername(userEmail, userUsername)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		log.Printf("failed to fetch users by email or username :- %v\n", err.Error())
+		log.Printf("failed to get active users by email or username :- %v\n", err.Error())
 		writeJSONError(w, "internal server error", http.StatusInternalServerError)
 		return
 	}
 
-	if len(existingUsers) != 0 {
+	if len(activeUsers) != 0 {
 		writeJSONError(w, "user already exists", http.StatusBadRequest)
 		return
 	}
 
-	userHashedPassword, err := bcrypt.GenerateFromPassword([]byte(userPassword), bcrypt.DefaultCost)
+	// if not , continue with the process
+	// hash plain text password
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(userPassword), bcrypt.DefaultCost)
 	if err != nil {
-		log.Printf("failed to hash password using bcrypt :- %v\n", err.Error())
+		log.Printf("failed to hash password :- %v\n", err.Error())
 		writeJSONError(w, "internal server error", http.StatusInternalServerError)
 		return
 	}
 
-	newUser, err := h.storage.CreateUser(userEmail, userUsername, string(userHashedPassword), userDateOfBirthTime.Format("2006-01-02"))
+	// create a unique verification token for the user
+	verificationTokenStr := uuid.New().String()
+	expirationTime := time.Now().Add(time.Hour * 24 * 3)
+
+	// create user along with its corresponding invitation  using a transaction
+	newUser, err := h.storage.CreateUserAndInvitation(userEmail, userUsername, string(hashedPassword), userDateOfBirth, verificationTokenStr, expirationTime)
 	if err != nil {
-		log.Printf("failed to insert user in db :- %v\n", err.Error())
+		log.Printf("failed to create user and invitation :- %v\n", err.Error())
+		writeJSONError(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	// send mail
+
+	if err := helpers.SendMailWithRetry(os.Getenv("GOMAIL_FROM_EMAIL"), "Activate account", *newUser, verificationTokenStr, "./templates/verification.html", VERIFICATION_MAIL_RETRY_COUNT); err != nil {
+		log.Printf("failed to send mail :- %v\n", err.Error())
+		writeJSONError(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	type Response struct {
+		Success bool         `json:"success"`
+		Message string       `json:"message"`
+		User    storage.User `json:"user"`
+	}
+
+	if err := writeJSON(w, Response{Success: true, Message: "registered user successfully and sent verification mail", User: *newUser}, http.StatusOK); err != nil {
+		writeJSONError(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+}
+
+func (h *Handler) ActivateUserHandler(w http.ResponseWriter, r *http.Request) {
+
+	tokenStr := r.URL.Query().Get("token")
+
+	activeUser, err := h.storage.ActivateUser(tokenStr)
+	if err != nil {
 		writeJSONError(w, "internal server error", http.StatusInternalServerError)
 		return
 	}
 
 	claims := jwt.MapClaims{
-		"userId": newUser.Id,
-		"exp":    time.Now().Add(time.Hour * 24 * 2).Unix(),
+		"userId": activeUser.Id,
+		"exp":    time.Now().Add(time.Hour * 24 * 30).Unix(),
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	signedToken, err := token.SignedString(JWT_SECRET)
+
+	jwtTokenStr, err := token.SignedString(JWT_SECRET)
 	if err != nil {
-		log.Printf("failed to sign token with secret :- %v\n", err.Error())
 		writeJSONError(w, "internal server error", http.StatusInternalServerError)
 		return
 	}
@@ -130,12 +168,12 @@ func (h *Handler) RegisterUserHandler(w http.ResponseWriter, r *http.Request) {
 
 	cookie := http.Cookie{
 		Name:     "auth_token",
-		Value:    signedToken,
+		Value:    jwtTokenStr,
 		HttpOnly: true,
 		Path:     "/",
 		Secure:   os.Getenv("GO_ENV") == "production",
 		SameSite: sameSiteConfig,
-		MaxAge:   60 * 60 * 24 * 2,
+		MaxAge:   60 * 60 * 24 * 30,
 	}
 
 	http.SetCookie(w, &cookie)
@@ -146,8 +184,9 @@ func (h *Handler) RegisterUserHandler(w http.ResponseWriter, r *http.Request) {
 		User    storage.User `json:"user"`
 	}
 
-	if err := writeJSON(w, Response{Success: true, Message: "user registered successfully", User: *newUser}, http.StatusCreated); err != nil {
+	if err := writeJSON(w, Response{Success: true, Message: "user activated", User: *activeUser}, http.StatusOK); err != nil {
 		writeJSONError(w, "internal server error", http.StatusInternalServerError)
+		return
 	}
 }
 
@@ -220,7 +259,7 @@ func (h *Handler) LoginUserHandler(w http.ResponseWriter, r *http.Request) {
 	// valid  credentials
 	claims := jwt.MapClaims{
 		"userId": user.Id,
-		"exp":    time.Now().Add(time.Hour * 24 * 2).Unix(),
+		"exp":    time.Now().Add(time.Hour * 24 * 30).Unix(),
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
@@ -246,7 +285,7 @@ func (h *Handler) LoginUserHandler(w http.ResponseWriter, r *http.Request) {
 		Path:     "/",
 		Secure:   os.Getenv("GO_ENV") == "production",
 		SameSite: sameSiteConfig,
-		MaxAge:   60 * 60 * 24 * 2,
+		MaxAge:   60 * 60 * 24 * 30,
 	}
 
 	http.SetCookie(w, &cookie)
