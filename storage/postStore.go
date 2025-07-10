@@ -333,7 +333,7 @@ func (s *Storage) GetUserPostFeed(skip int, limit int, userId int, likesCountWt,
 
 	var postsWithMetaData []PostWithMetaData
 
-	query := `SELECT * , $4::numeric * q.likes_count + $5::numeric * q.comments_count + $6::numeric * q.bookmarks_count AS activity_score  
+	query := `SELECT *, (($4::numeric * q.likes_count + $5::numeric * q.comments_count + $6::numeric * q.bookmarks_count) / (EXTRACT(EPOCH FROM (NOW() - post_created_at))/60)) AS activity_score  
 	FROM (
 	SELECT 
     	p.id,

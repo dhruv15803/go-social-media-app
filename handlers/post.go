@@ -62,7 +62,6 @@ func (h *Handler) GetPostsHandler(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeJSONError(w, "internal server error", http.StatusInternalServerError)
 		return
-
 	}
 
 	totalPostsCount, err := h.storage.GetUserPostFeedCount(user.Id)
