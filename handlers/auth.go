@@ -1,7 +1,9 @@
 package handlers
 
 import (
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"log"
@@ -29,6 +31,14 @@ type LoginUserRequest struct {
 	Email    string `json:"email"`
 	Password string `json:"password"`
 	Username string `json:"username"`
+}
+
+type ForgotPasswordRequest struct {
+	Email string `json:"email"`
+}
+
+type ResetUserPasswordRequest struct {
+	Password string `json:"password"`
 }
 
 var (
@@ -117,7 +127,7 @@ func (h *Handler) RegisterUserHandler(w http.ResponseWriter, r *http.Request) {
 
 	// send mail
 
-	if err := helpers.SendMailWithRetry(os.Getenv("GOMAIL_FROM_EMAIL"), "Activate account", *newUser, verificationTokenStr, "./templates/verification.html", VERIFICATION_MAIL_RETRY_COUNT); err != nil {
+	if err := helpers.SendVerificationMailWithRetry(os.Getenv("GOMAIL_FROM_EMAIL"), "Activate account", *newUser, verificationTokenStr, "./templates/verification.html", VERIFICATION_MAIL_RETRY_COUNT); err != nil {
 		log.Printf("failed to send mail :- %v\n", err.Error())
 		writeJSONError(w, "internal server error", http.StatusInternalServerError)
 		return
@@ -379,5 +389,118 @@ func (h *Handler) LogoutUserHandler(w http.ResponseWriter, r *http.Request) {
 
 	if err := writeJSON(w, Response{Success: true, Message: "logged out successfully"}, http.StatusOK); err != nil {
 		writeJSONError(w, "internal server error", http.StatusInternalServerError)
+	}
+}
+
+func (h *Handler) ForgotPasswordHandler(w http.ResponseWriter, r *http.Request) {
+
+	var forgotPasswordPayload ForgotPasswordRequest
+
+	if err := json.NewDecoder(r.Body).Decode(&forgotPasswordPayload); err != nil {
+		writeJSONError(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	userEmail := strings.ToLower(strings.TrimSpace(forgotPasswordPayload.Email))
+
+	if userEmail == "" {
+		writeJSONError(w, "email is required", http.StatusBadRequest)
+		return
+	}
+
+	if !helpers.IsEmailValid(userEmail) {
+		writeJSONError(w, "invalid email", http.StatusBadRequest)
+		return
+	}
+
+	activeUser, err := h.storage.GetActiveUserByEmail(userEmail)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeJSONError(w, "user account not found", http.StatusBadRequest)
+			return
+		} else {
+			writeJSONError(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	plainToken, tokenHash, err := helpers.GenerateToken()
+	if err != nil {
+		log.Printf("failed to generate token :- %v\n", err.Error())
+		writeJSONError(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	passwordResetExpirationTime := time.Now().Add(time.Minute * 15)
+
+	if err := h.storage.CreatePasswordResetForUser(tokenHash, activeUser.Id, passwordResetExpirationTime); err != nil {
+		writeJSONError(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	maxRetryCount := 3
+	if err := helpers.SendPasswordResetMailWithRetry(os.Getenv("GOMAIL_FROM_EMAIL"), "Password reset", *activeUser, plainToken, "./templates/passwordReset.html", maxRetryCount); err != nil {
+		writeJSONError(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	type Response struct {
+		Success bool   `json:"success"`
+		Message string `json:"message"`
+	}
+
+	if err := writeJSON(w, Response{Success: true, Message: ""}, http.StatusOK); err != nil {
+		writeJSONError(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+}
+
+func (h *Handler) ResetUserPasswordHandler(w http.ResponseWriter, r *http.Request) {
+
+	var resetUserPasswordPayload ResetUserPasswordRequest
+
+	if err := json.NewDecoder(r.Body).Decode(&resetUserPasswordPayload); err != nil {
+		writeJSONError(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	newPassword := strings.TrimSpace(resetUserPasswordPayload.Password)
+
+	plainToken := r.URL.Query().Get("token")
+
+	hashTokenBytes := sha256.Sum256([]byte(plainToken))
+
+	hashedToken := hex.EncodeToString(hashTokenBytes[:])
+
+	if newPassword == "" {
+		writeJSONError(w, "password is required", http.StatusBadRequest)
+		return
+	}
+
+	if !helpers.IsPasswordStrong(newPassword) {
+		writeJSONError(w, "weak password", http.StatusBadRequest)
+		return
+	}
+
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
+	if err != nil {
+		writeJSONError(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	if err := h.storage.ResetPassword(string(hashedPassword), hashedToken); err != nil {
+		log.Printf("failed to reset password :- %v\n", err.Error())
+		writeJSONError(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	type Response struct {
+		Success bool   `json:"success"`
+		Message string `json:"message"`
+	}
+
+	if err := writeJSON(w, Response{Success: true, Message: "reset password successfully"}, http.StatusOK); err != nil {
+		writeJSONError(w, "internal server error", http.StatusInternalServerError)
+		return
 	}
 }

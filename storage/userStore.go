@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"errors"
 	"fmt"
 	"time"
 )
@@ -21,6 +22,12 @@ type User struct {
 }
 
 type UserInvitation struct {
+	Token      string `db:"token" json:"token"`
+	UserId     int    `db:"user_id" json:"user_id"`
+	Expiration string `db:"expiration" json:"expiration"`
+}
+
+type PasswordReset struct {
 	Token      string `db:"token" json:"token"`
 	UserId     int    `db:"user_id" json:"user_id"`
 	Expiration string `db:"expiration" json:"expiration"`
@@ -444,4 +451,59 @@ func (s *Storage) GetUsersBySearchTextCount(searchText string) (int, error) {
 
 	return totalResultsCount, nil
 
+}
+
+func (s *Storage) CreatePasswordResetForUser(token string, userId int, expirationTime time.Time) error {
+
+	query := `INSERT INTO password_resets(token,user_id,expiration) VALUES($1,$2,$3)`
+
+	result, err := s.db.Exec(query, token, userId, expirationTime)
+	if err != nil {
+		return err
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+
+	if rowsAffected != 1 {
+		return errors.New("failed to create password reset entry for user")
+	}
+
+	return nil
+}
+
+func (s *Storage) ResetPassword(password string, token string) error {
+
+	var passwordReset PasswordReset
+
+	query := `SELECT token,user_id,expiration FROM 
+	password_resets WHERE token=$1 AND expiration > $2`
+
+	row := s.db.QueryRowx(query, token, time.Now())
+
+	if err := row.StructScan(&passwordReset); err != nil {
+		return err
+	}
+
+	userId := passwordReset.UserId
+
+	query = `UPDATE users SET password=$1 WHERE id=$2`
+
+	result, err := s.db.Exec(query, password, userId)
+	if err != nil {
+		return err
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+
+	if rowsAffected != 1 {
+		return errors.New("failed to update password")
+	}
+
+	return nil
 }

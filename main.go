@@ -83,6 +83,8 @@ func main() {
 			r.Post("/register", handler.RegisterUserHandler)
 			r.Post("/login", handler.LoginUserHandler)
 			r.Put("/activate", handler.ActivateUserHandler)
+			r.Post("/forgot-password", handler.ForgotPasswordHandler)
+			r.Put("/reset-password", handler.ResetUserPasswordHandler)
 			r.With(handler.AuthMiddleware).Get("/user", handler.GetAuthUserHandler)
 			r.With(handler.AuthMiddleware).Get("/logout", handler.LogoutUserHandler)
 		})

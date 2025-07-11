@@ -1,6 +1,9 @@
 package helpers
 
 import (
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -105,4 +108,19 @@ func CalculateAgeFromTime(userDateOfBirthTime time.Time) int {
 
 	return age
 
+}
+
+func GenerateToken() (string, string, error) {
+	bytes := make([]byte, 32)
+
+	_, err := rand.Read(bytes)
+	if err != nil {
+		return "", "", err
+	}
+
+	tokenStr := hex.EncodeToString(bytes)
+	hashBytes := sha256.Sum256([]byte(tokenStr))
+	tokenHash := hex.EncodeToString(hashBytes[:])
+
+	return tokenStr, tokenHash, nil
 }
