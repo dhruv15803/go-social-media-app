@@ -70,6 +70,39 @@ func (s *Storage) GetActiveUsersByEmailOrUsername(email string, username string)
 	return activeUsers, nil
 }
 
+func (s *Storage) GetActiveUserByEmail(email string) (*User, error) {
+
+	var activeUser User
+
+	query := `SELECT id,email,username,image_url,password,bio,location,
+	date_of_birth,is_public,created_at,updated_at,is_active FROM users
+	WHERE email=$1 AND is_active=true`
+
+	row := s.db.QueryRowx(query, email)
+
+	if err := row.StructScan(&activeUser); err != nil {
+		return nil, err
+	}
+
+	return &activeUser, nil
+}
+
+func (s *Storage) GetActiveUserByUsername(username string) (*User, error) {
+	var activeUser User
+
+	query := `SELECT id,email,username,image_url,password,bio,location,date_of_birth,
+	is_public,created_at,updated_at,is_active FROM users WHERE username=$1 AND is_active=true`
+
+	row := s.db.QueryRowx(query, username)
+
+	if err := row.StructScan(&activeUser); err != nil {
+		return nil, err
+	}
+
+	return &activeUser, nil
+
+}
+
 func (s *Storage) CreateUser(email string, username string, password string, dateOfBirth string) (*User, error) {
 
 	var newUser User

@@ -213,7 +213,7 @@ func (h *Handler) LoginUserHandler(w http.ResponseWriter, r *http.Request) {
 
 		userEmail := strings.ToLower(strings.TrimSpace(loginUserPayload.Email))
 		// login by email
-		user, err = h.storage.GetUserByEmail(userEmail)
+		user, err = h.storage.GetActiveUserByEmail(userEmail)
 		if err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				writeJSONError(w, "invalid email or password", http.StatusBadRequest)
@@ -228,7 +228,7 @@ func (h *Handler) LoginUserHandler(w http.ResponseWriter, r *http.Request) {
 		// login by username
 		userUsername := strings.TrimSpace(loginUserPayload.Username)
 
-		user, err = h.storage.GetUserByUsername(userUsername)
+		user, err = h.storage.GetActiveUserByUsername(userUsername)
 		if err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				writeJSONError(w, "invalid username or password", http.StatusBadRequest)
@@ -331,5 +331,53 @@ func (h *Handler) GetAuthUserHandler(w http.ResponseWriter, r *http.Request) {
 	if err := writeJSON(w, Response{Success: true, User: *user}, http.StatusOK); err != nil {
 		writeJSONError(w, "internal server error", http.StatusInternalServerError)
 		return
+	}
+}
+
+func (h *Handler) LogoutUserHandler(w http.ResponseWriter, r *http.Request) {
+
+	userId, ok := r.Context().Value(AuthUserId).(int)
+	if !ok {
+		writeJSONError(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	_, err := h.storage.GetUserById(userId)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeJSONError(w, "user not found", http.StatusBadRequest)
+			return
+		} else {
+			writeJSONError(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	var sameSiteConfig http.SameSite
+
+	if os.Getenv("GO_ENV") == "development" {
+		sameSiteConfig = http.SameSiteLaxMode
+	} else {
+		sameSiteConfig = http.SameSiteNoneMode
+	}
+	cookie := http.Cookie{
+		Name:     "auth_token",
+		Value:    "",
+		Path:     "/",
+		MaxAge:   -1,
+		Secure:   os.Getenv("GO_ENV") == "production",
+		HttpOnly: true,
+		SameSite: sameSiteConfig,
+	}
+
+	http.SetCookie(w, &cookie)
+
+	type Response struct {
+		Success bool   `json:"success"`
+		Message string `json:"message"`
+	}
+
+	if err := writeJSON(w, Response{Success: true, Message: "logged out successfully"}, http.StatusOK); err != nil {
+		writeJSONError(w, "internal server error", http.StatusInternalServerError)
 	}
 }
