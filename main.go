@@ -24,9 +24,7 @@ type Config struct {
 
 func loadConfig() (*Config, error) {
 
-	if err := godotenv.Load(); err != nil {
-		return nil, err
-	}
+	_ = godotenv.Load()
 
 	port := ":" + os.Getenv("PORT")
 	dbConnStr := os.Getenv("DB_CONN")
