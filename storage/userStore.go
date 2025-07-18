@@ -260,7 +260,7 @@ func (s *Storage) GetUserByUsername(username string) (*User, error) {
 	var user User
 
 	query := `SELECT id,email,username,image_url,password,bio,location,date_of_birth,
-	is_public,created_at,updated_at,u.is_active FROM users WHERE username=$1`
+	is_public,created_at,updated_at,is_active FROM users WHERE username=$1`
 
 	if err := s.db.Get(&user, query, username); err != nil {
 		return nil, err

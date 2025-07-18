@@ -857,6 +857,7 @@ func (h *Handler) UpdateUserHandler(w http.ResponseWriter, r *http.Request) {
 	// check if a user already exists with this username
 	existingUser, err := h.storage.GetUserByUsername(newUsername)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		log.Printf("failed to get user by username :- %v\n", err.Error())
 		writeJSONError(w, "internal server error", http.StatusInternalServerError)
 		return
 	}
@@ -868,6 +869,7 @@ func (h *Handler) UpdateUserHandler(w http.ResponseWriter, r *http.Request) {
 
 	updatedUser, err := h.storage.UpdateUser(user.Id, newUsername, newImageUrl, newBio, newLocation, isUserPublic)
 	if err != nil {
+		log.Printf("failed to update user :- %v\n", err.Error())
 		writeJSONError(w, "internal server error", http.StatusInternalServerError)
 		return
 
