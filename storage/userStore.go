@@ -245,7 +245,7 @@ func (s *Storage) GetUserByEmail(email string) (*User, error) {
 	var user User
 
 	query := `SELECT id,email,username,image_url,password,
-	bio,location,date_of_birth,is_public,created_at,updated_at 
+	bio,location,date_of_birth,is_public,created_at,updated_at,is_active 
 	FROM users WHERE email=$1`
 
 	if err := s.db.Get(&user, query, email); err != nil {
@@ -260,7 +260,7 @@ func (s *Storage) GetUserByUsername(username string) (*User, error) {
 	var user User
 
 	query := `SELECT id,email,username,image_url,password,bio,location,date_of_birth,
-	is_public,created_at,updated_at FROM users WHERE username=$1`
+	is_public,created_at,updated_at,u.is_active FROM users WHERE username=$1`
 
 	if err := s.db.Get(&user, query, username); err != nil {
 		return nil, err
@@ -273,7 +273,7 @@ func (s *Storage) GetUserById(id int) (*User, error) {
 	var user User
 
 	query := `SELECT id,email,username,image_url,password,bio,location,date_of_birth,
-	is_public,created_at,updated_at FROM users WHERE id=$1`
+	is_public,created_at,updated_at, is_active FROM users WHERE id=$1`
 
 	if err := s.db.Get(&user, query, id); err != nil {
 		return nil, err
@@ -287,7 +287,7 @@ func (s *Storage) GetFollowers(userId int, skip int, limit int) ([]User, error) 
 	var followers []User
 
 	query := `SELECT 
-	id,email,username,image_url,password,bio,location,date_of_birth,is_public,created_at,updated_at 
+	id,email,username,image_url,password,bio,location,date_of_birth,is_public,created_at,updated_at,is_active 
 	FROM users 
 	WHERE id IN 
 	(SELECT follower_id 
@@ -334,7 +334,7 @@ func (s *Storage) GetFollowings(userId int, skip int, limit int) ([]User, error)
 	var followings []User
 
 	query := `SELECT 
-	id,email,username,image_url,password,bio,location,date_of_birth,is_public,created_at,updated_at 
+	id,email,username,image_url,password,bio,location,date_of_birth,is_public,created_at,updated_at,is_active 
 	FROM users 
 	WHERE id IN 
 	(SELECT following_id 
@@ -401,9 +401,9 @@ func (s *Storage) GetUsersBySearchText(searchText string, skip int, limit int) (
 
 	var results []User
 
-	query := `SELECT u.id,u.email,u.username,u.image_url,u.password,bio,u.location,u.date_of_birth,u.is_public,u.created_at,u.updated_at,COUNT(f.follower_id) AS followers_count
+	query := `SELECT u.id,u.email,u.username,u.image_url,u.password,bio,u.location,u.date_of_birth,u.is_public,u.created_at,u.updated_at,u.is_active,COUNT(f.follower_id) AS followers_count
 FROM users AS u LEFT JOIN follows AS f ON f.following_id=u.id
-WHERE u.username ILIKE $1
+WHERE u.is_active=true AND u.username ILIKE $1
 GROUP BY u.id,f.following_id
 ORDER BY followers_count DESC , u.created_at DESC 
 LIMIT $2 OFFSET $3`
