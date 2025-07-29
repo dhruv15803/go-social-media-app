@@ -836,3 +836,60 @@ func (h *Handler) sendNotification(userId int, actorId int, notificationType sto
 
 	return isNotificationSuccessful
 }
+
+func (h *Handler) GetPostLikedUsersHandler(w http.ResponseWriter, r *http.Request) {
+	postId, err := strconv.Atoi(chi.URLParam(r, "postId"))
+	if err != nil {
+		writeJSONError(w, "invalid request param postId", http.StatusBadRequest)
+		return
+	}
+
+	post, err := h.storage.GetPostById(postId)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeJSONError(w, "post not found", http.StatusBadRequest)
+			return
+		} else {
+			writeJSONError(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	pageNum, err := strconv.Atoi(r.URL.Query().Get("page"))
+	if err != nil {
+		writeJSONError(w, "invalid query param page", http.StatusBadRequest)
+		return
+	}
+
+	limitNum, err := strconv.Atoi(r.URL.Query().Get("limit"))
+	if err != nil {
+		writeJSONError(w, "invalid query param limit", http.StatusBadRequest)
+		return
+	}
+
+	skip := pageNum*limitNum - limitNum
+
+	users, err := h.storage.GetPostLikedUsers(post.Id, skip, limitNum)
+	if err != nil {
+		writeJSONError(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	totalPostLikesCount, err := h.storage.GetPostLikedUsersCount(post.Id)
+	if err != nil {
+		writeJSONError(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	noOfPages := int(math.Ceil(float64(totalPostLikesCount) / float64(limitNum)))
+
+	type Response struct {
+		Success   bool           `json:"success"`
+		Users     []storage.User `json:"users"`
+		NoOfPages int            `json:"noOfPages"`
+	}
+
+	if err := writeJSON(w, Response{Success: true, Users: users, NoOfPages: noOfPages}, http.StatusOK); err != nil {
+		writeJSONError(w, "internal server error", http.StatusInternalServerError)
+	}
+}

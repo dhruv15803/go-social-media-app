@@ -91,6 +91,7 @@ func main() {
 			r.Get("/posts", handler.GetPublicPostsHandler)
 			r.Get("/{postId}/comments", handler.GetPostCommentsHandler)
 			r.Get("/{postId}/likes", handler.GetPostLikesHandler)
+			r.Get("/{postId}/liked-users", handler.GetPostLikedUsersHandler)
 			r.Get("/{postId}/bookmarks", handler.GetPostBookmarksHandler)
 			r.Get("/{postId}", handler.GetPostHandler)
 			r.Get("/{postId}/metadata", handler.GetPostWithMetaDataHandler)
@@ -109,13 +110,14 @@ func main() {
 		})
 
 		r.Route("/user", func(r chi.Router) {
-			r.Get("/{userId}/profile", handler.GetUserProfileHandler)
 			r.With(handler.OptionalAuthMiddleware).Get("/{userId}/posts", handler.GetUserPostsHandler)
 			r.With(handler.OptionalAuthMiddleware).Get("/{userId}/liked-posts", handler.GetUserLikedPostsHandler)
 			r.With(handler.OptionalAuthMiddleware).Get("/{userId}/bookmarked-posts", handler.GetUserBookmarkedPostsHandler)
 			r.With(handler.OptionalAuthMiddleware).Get("/{userId}/followers", handler.GetUserFollowersHandler)
 			r.With(handler.OptionalAuthMiddleware).Get("/{userId}/followings", handler.GetUserFollowingsHandler)
+
 			r.Get("/search", handler.GetSearchResultsHandler)
+			r.Get("/{userId}/profile", handler.GetUserProfileHandler)
 
 			r.Group(func(r chi.Router) {
 				r.Use(handler.AuthMiddleware)

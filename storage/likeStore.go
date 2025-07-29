@@ -83,3 +83,48 @@ func (s *Storage) GetPostLikes(likedPostId int) ([]Like, error) {
 
 	return likes, nil
 }
+
+func (s *Storage) GetPostLikedUsers(postId int, skip int, limit int) ([]User, error) {
+
+	var users []User
+
+	query := `SELECT id,email,username,image_url,password,bio,location,
+	date_of_birth,is_public,created_at,updated_at,is_active FROM users
+	WHERE id IN (SELECT liked_by_id FROM likes WHERE liked_post_id=$1 ORDER BY liked_at DESC LIMIT $2 OFFSET $3)`
+
+	rows, err := s.db.Queryx(query, postId, limit, skip)
+	if err != nil {
+		return []User{}, err
+	}
+
+	defer rows.Close()
+
+	for rows.Next() {
+
+		var user User
+
+		if err := rows.StructScan(&user); err != nil {
+			return []User{}, err
+		}
+
+		users = append(users, user)
+	}
+
+	return users, nil
+
+}
+
+func (s *Storage) GetPostLikedUsersCount(postId int) (int, error) {
+
+	var totalLikesCount int
+
+	query := `SELECT COUNT(liked_by_id) FROM likes WHERE liked_post_id=$1`
+
+	row := s.db.QueryRow(query, postId)
+
+	if err := row.Scan(&totalLikesCount); err != nil {
+		return -1, err
+	}
+
+	return totalLikesCount, nil
+}

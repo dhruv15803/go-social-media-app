@@ -594,6 +594,7 @@ func (s *Storage) GetPostsByUserId(userId int, skip int, limit int) ([]PostWithM
 	if err != nil {
 		return []PostWithMetaData{}, err
 	}
+
 	defer rows.Close()
 
 	for rows.Next() {
